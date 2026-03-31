@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadCloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:GetQueryResults"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:/aws/lambda/logwatch-*",
+        "arn:aws:logs:*:*:log-group:/aws/lambda/logwatch-*:*"
+      ]
+    },
+    {
+      "Sid": "ReadApiGatewayLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:API-Gateway-Execution-Logs_*",
+        "arn:aws:logs:*:*:log-group:API-Gateway-Execution-Logs_*:*"
+      ]
+    }
+  ]
+}
