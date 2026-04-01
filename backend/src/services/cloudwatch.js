@@ -59,6 +59,37 @@ async function fetchGroupLogs(groupName, endpoint, opts = {}) {
     limit         = FETCH_LIMIT,
   } = opts;
 
+  // ── AUTO-MOCK FALLBACK ──────────────────────────────────────────
+  if (config.isMockMode) {
+    const count = Math.floor(Math.random() * 8) + 2; // 2-10 logs
+    const mockEvents = Array.from({ length: count }).map(() => {
+      const ts = Math.floor(Math.random() * (endTime - startTime)) + startTime;
+      const isError = Math.random() > 0.85;
+      const latency = Math.floor(Math.random() * 800) + 50;
+      
+      const payload = {
+        level: isError ? "ERROR" : "INFO",
+        message: isError ? `Simulated failure on /${endpoint} (Mock Mode)` : `Healthy response from /${endpoint}`,
+        endpoint: `/${endpoint}`,
+        durationMs: latency,
+        statusCode: isError ? 500 : 200,
+        requestId: `mock-${Math.random().toString(36).slice(2)}`
+      };
+
+      return {
+        eventId: `mock-${Date.now()}-${Math.random()}`,
+        timestamp: ts,
+        message: JSON.stringify(payload)
+      };
+    });
+
+    return mockEvents
+      .map((e) => parseLogEvent(e, endpoint))
+      .filter(Boolean)
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  // ── AWS REAL CALL ───────────────────────────────────────────────
   const command = new FilterLogEventsCommand({
     logGroupName:  groupName,
     startTime,

@@ -18,6 +18,12 @@ const docClient = DynamoDBDocumentClient.from(client, {
 
 const TABLE_NAME = config.dynamo.tableName;
 
+// ── MOCK DATA STORE ─────────────────────────────────────────────
+let mockAlerts = [
+  { id: "mock-1", timestamp: Date.now() - 3600000, severity: "ERROR", type: "LATENCY_SPIKE", message: "Simulated: Payment latency > 2s", endpoint: "/payment" },
+  { id: "mock-2", timestamp: Date.now() - 7200000, severity: "WARN", type: "THROTTLED", message: "Simulated: API Rate limit reached", endpoint: "/login" },
+];
+
 
 /**
  * 1. saveAlert(alert)
@@ -26,6 +32,13 @@ const TABLE_NAME = config.dynamo.tableName;
  */
 export async function saveAlert(alert) {
   try {
+    if (config.isMockMode) {
+      if (mockAlerts.some(a => a.id === alert.id)) return false;
+      mockAlerts.push({ ...alert, timestamp: Number(alert.timestamp) });
+      console.info(`[DynamoDB-Mock] Saved alert: ${alert.id}`);
+      return true;
+    }
+
     // TTL attribute must be in epoch seconds
     const expiresAt = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
 
@@ -58,6 +71,14 @@ export async function saveAlert(alert) {
  */
 export async function getAlerts({ limit = 50, severity, startTime, endTime } = {}) {
   try {
+    if (config.isMockMode) {
+      let filtered = [...mockAlerts];
+      if (severity) filtered = filtered.filter(a => a.severity === severity);
+      if (startTime) filtered = filtered.filter(a => a.timestamp >= Number(startTime));
+      if (endTime) filtered = filtered.filter(a => a.timestamp <= Number(endTime));
+      return filtered.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+    }
+
     const filterExpr = [];
     const exprNames = {};
     const exprValues = {};
@@ -111,6 +132,11 @@ export async function getAlerts({ limit = 50, severity, startTime, endTime } = {
  */
 export async function deleteAlert(id, timestamp) {
   try {
+    if (config.isMockMode) {
+      mockAlerts = mockAlerts.filter(a => a.id !== id);
+      return true;
+    }
+
     await docClient.send(new DeleteCommand({
       TableName: TABLE_NAME,
       Key: {

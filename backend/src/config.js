@@ -12,15 +12,19 @@ const requiredEnv = [
 ];
 
 // 1. Validation Logic
+const isAwsConfigured = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
 const missing = requiredEnv.filter(k => !process.env[k]);
+
 if (missing.length > 0 && process.env.NODE_ENV === "production") {
   throw new Error(`[FATAL] Missing required production environment variables: ${missing.join(", ")}`);
 } else if (missing.length > 0) {
   console.warn(`[WARNING] Missing environment variables for full AWS integration: ${missing.join(", ")}`);
+  console.info(`[INFO] AUTO-MOCK ENABLED: Dashboard will use simulated telemetry.`);
 }
 
 // 2. Exported Config Object
 export const config = {
+  isMockMode: !isAwsConfigured && process.env.NODE_ENV !== "production",
   // Required
   aws: {
     region: process.env.AWS_REGION || "us-east-1",

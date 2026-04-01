@@ -1,4 +1,5 @@
 import express      from "express";
+import path         from "path";
 import cors         from "cors";
 import helmet       from "helmet";
 import morgan       from "morgan";
@@ -58,6 +59,16 @@ app.use("/alerts",  alertsRouter);
 app.use("/stream",  streamRouter);
 app.use("/storage", storageRouter);
 
+// ── Debug / Local Download ─────────────────────────────────────
+app.get("/api/debug/download", (req, res) => {
+  if (!config.isMockMode) return res.status(403).json({ error: "Debug endpoint disabled" });
+  const key = req.query.key;
+  if (!key) return res.status(400).json({ error: "Key required" });
+  
+  const localPath = path.join(process.cwd(), "tmp", key);
+  res.download(localPath);
+});
+
 // ── 404 catch-all ──────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
@@ -93,6 +104,7 @@ const server = app.listen(PORT, () => {
   ╠${border}╣
   ║  PORT: ${PORT.toString().padEnd(42)}║
   ║  MODE: ${mode.padEnd(42)}║
+  ║  MOCK DATA: ${(config.isMockMode ? "Enabled (AWS Offline)" : "Disabled").padEnd(35)}║
   ║  ARCHIVER: Enabled (${archiverInterval} min interval)      ║
   ║  HEALTH: http://localhost:${PORT}/ping             ║
   ╚${border}╝

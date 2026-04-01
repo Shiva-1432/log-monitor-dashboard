@@ -6,6 +6,8 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import fs from "fs";
+import path from "path";
 import config from "../config.js";
 
 const REGION = config.aws.region;
@@ -82,6 +84,15 @@ export async function saveLogsToS3(logs, endpoint) {
       count,
       logs,
     };
+
+    if (config.isMockMode) {
+      const localPath = path.join(process.cwd(), "tmp", key);
+      const dir = path.dirname(localPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(localPath, JSON.stringify(payload, null, 2));
+      console.info(`[S3-Mock] Saved logs locally to: ${localPath}`);
+      return { key, bucket: "local-fs", count, savedAt: now };
+    }
 
     await s3Client.send(
       new PutObjectCommand({
@@ -180,6 +191,11 @@ export async function getLogFile(key) {
  */
 export async function generateDownloadUrl(key, expiresInSeconds = 300) {
   try {
+    if (config.isMockMode) {
+      // Return a path that the local server can serve via a static route or special endpoint
+      return { url: `/api/debug/download?key=${key}`, expiresAt: "never", key };
+    }
+
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,

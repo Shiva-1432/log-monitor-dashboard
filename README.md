@@ -142,13 +142,13 @@ bash aws/generate-traffic.sh
 | `AWS_REGION` | Yes | Target AWS region | `us-east-1` |
 | `S3_BUCKET_NAME` | Yes | Storage bucket for archives | `my-logwatch-logs` |
 | `DYNAMO_TABLE_NAME`| Yes | Alert storage table | `logwatch-alerts` |
-| `FRONTEND_URL` | Yes | Allowed CORS origin | `http://localhost:3000` |
+| `FRONTEND_URL` | Yes | Allowed CORS origin | `http://localhost:3002` |
 
 ### Frontend (`/frontend/.env.local`)
 | Variable | Required | Description | Example |
 | :--- | :--- | :--- | :--- |
 | `NEXT_PUBLIC_BACKEND_URL` | Yes | Live API Endpoint | `http://localhost:4000` |
-| `NEXT_PUBLIC_CLERK_PK` | Yes | Clerk Publishable Key | `pk_test_...` |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk Publishable Key | `pk_test_...` |
 | `CLERK_SECRET_KEY` | Yes | Clerk Secret for Middleware | `sk_test_...` |
 
 ---
