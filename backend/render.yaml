@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: logwatch-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /ping
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: LOG_FETCH_LIMIT
+        value: 100
+      - key: LOG_ARCHIVE_INTERVAL_MINUTES
+        value: 10
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: CW_LOG_GROUP_LOGIN
+        sync: false
+      - key: CW_LOG_GROUP_UPLOAD
+        sync: false
+      - key: CW_LOG_GROUP_PAYMENT
+        sync: false
+      - key: DYNAMO_TABLE_NAME
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: FRONTEND_URL
+        sync: false

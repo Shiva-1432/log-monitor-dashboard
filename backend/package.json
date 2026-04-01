@@ -2,21 +2,33 @@
   "name": "logwatch-backend",
   "version": "1.0.0",
   "description": "LogWatch Express backend — fetches CloudWatch logs and serves them to the frontend",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-    "dev":   "nodemon src/server.js",
-    "start": "node src/server.js",
-    "lint":  "eslint src/"
+    "dev": "nodemon src/server.js",
+    "start": "NODE_ENV=production node src/server.js",
+    "lint": "eslint src/",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "test:full": "node scripts/test-suite.mjs",
+    "seed": "node scripts/seed-traffic.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch-logs": "^3.600.0",
-    "cors":                            "^2.8.5",
-    "dotenv":                          "^16.4.5",
-    "express":                         "^4.19.2",
-    "express-rate-limit":              "^7.3.1",
-    "helmet":                          "^7.1.0",
-    "morgan":                          "^1.10.0"
+    "@aws-sdk/client-dynamodb": "^3.1021.0",
+    "@aws-sdk/client-s3": "^3.1021.0",
+    "@aws-sdk/lib-dynamodb": "^3.1021.0",
+    "@aws-sdk/s3-request-presigner": "^3.1021.0",
+    "compression": "^1.8.1",
+    "connect-timeout": "^1.9.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

@@ -51,6 +51,16 @@ const NAV = [
     ),
   },
   {
+    href: "/storage",
+    label: "Log History",
+    badge: null,
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M2.5 3.5h10M2.5 7.5h10M2.5 11.5h10M4.5 1.5h6l1 2v9l-1 1h-6l-1-1v-9l1-2z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/settings",
     label: "Settings",
     badge: null,

@@ -1,11 +1,6 @@
-/**
- * src/lib/api.ts
- *
- * Typed client for the LogWatch Express backend.
- * All frontend pages import from here — never call fetch() directly.
- */
+import config from "./config";
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+const BASE_URL = config.backendUrl;
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -43,6 +38,8 @@ export interface Metrics {
   endpoints:  EndpointMetric[];
 }
 
+export type AlertType = "ERROR_SPIKE" | "HIGH_LATENCY";
+
 export interface Alert {
   id:          string;
   severity:    "critical" | "warning" | "info";
@@ -50,6 +47,15 @@ export interface Alert {
   description: string;
   time:        string;
   meta:        Record<string, string>;
+  
+  // Phase 6 extensions
+  type:        AlertType;
+  endpoint:    string;
+  errorRate:   number;
+  latencyP95:  number;
+  threshold:   number;
+  sampleSize:  number;
+  timestamp:   number;
 }
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d";
@@ -62,26 +68,94 @@ export interface LogFilters {
   limit?:    number;
 }
 
-// ── Internal fetch helper ──────────────────────────────────────
+// ── Storage types (Phase 8) ────────────────────────────────────
 
-async function apiFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  const url = new URL(`${BASE_URL}${path}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== "") url.searchParams.set(k, v);
-  });
-
-  const res = await fetch(url.toString(), {
-    headers: { "Content-Type": "application/json" },
-    cache:   "no-store",  // always fresh — this is a real-time dashboard
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(err.error ?? `HTTP ${res.status}`);
-  }
-
-  return res.json() as Promise<T>;
+export interface LogFile {
+  key: string;
+  size: number;
+  sizeFormatted: string;
+  lastModified: string;
+  endpoint: string;
+  date: string;
 }
+
+export interface ArchiverStatus {
+  isRunning: boolean;
+  lastArchivedAt: string | null;
+  totalArchived: number;
+  nextRunAt: string | null;
+  intervalMinutes: number;
+  errors: string[];
+}
+
+export interface StorageFile {
+  key: string;
+  logs: LogEntry[];
+  count: number;
+  savedAt: string;
+  endpoint: string;
+}
+
+// ── Internal fetch helper with retry + timeout logic ───────────
+
+const REQUEST_TIMEOUT_MS = 15000; // 15 seconds
+
+async function apiFetchWithRetry<T>(
+  path: string, 
+  options: RequestInit = {}, 
+  retries = 1
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+      signal: controller.signal,
+      cache: "no-store", 
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      // 503 is often transient (server waking up on Render)
+      if (retries > 0 && res.status === 503) {
+        console.warn(`[API] Retrying transient error (${res.status}) for ${path}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return apiFetchWithRetry(path, options, retries - 1);
+      }
+
+      const err = await res.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+
+    return res.json() as Promise<T>;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+
+    // Network errors or timeouts
+    if (retries > 0 && (error.name === "AbortError" || error.message === "Failed to fetch")) {
+      console.warn(`[API] Retrying network failure for ${path}...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return apiFetchWithRetry(path, options, retries - 1);
+    }
+
+    if (error.name === "AbortError") {
+      throw new Error("Request timed out — backend is taking too long to respond");
+    }
+
+    if (error.message === "Failed to fetch") {
+      throw new Error("Backend unreachable — check your connection or server status");
+    }
+
+    throw error;
+  }
+}
+
 
 // ── Public API ─────────────────────────────────────────────────
 
@@ -93,14 +167,27 @@ export async function fetchLogs(filters: LogFilters = {}): Promise<{
   count:     number;
   fetchedAt: string;
 }> {
-  const params: Record<string, string> = {};
-  if (filters.level    && filters.level    !== "all") params.level    = filters.level;
-  if (filters.endpoint && filters.endpoint !== "all") params.endpoint = filters.endpoint;
-  if (filters.range)   params.range  = filters.range;
-  if (filters.search)  params.search = filters.search;
-  if (filters.limit)   params.limit  = String(filters.limit);
+  const params = new URLSearchParams();
+  if (filters.level    && filters.level    !== "all") params.set("level", filters.level);
+  if (filters.endpoint && filters.endpoint !== "all") params.set("endpoint", filters.endpoint);
+  if (filters.range)   params.set("range", filters.range);
+  if (filters.search)  params.set("search", filters.search);
+  if (filters.limit)   params.set("limit", String(filters.limit));
 
-  return apiFetch("/logs", params);
+  return apiFetchWithRetry(`/logs?${params.toString()}`);
+}
+
+/**
+ * Helper to build the exact CSV download URL
+ */
+export function buildExportUrl(filters: LogFilters = {}): string {
+  const url = new URL(`${BASE_URL}/logs/export`);
+  if (filters.level    && filters.level    !== "all") url.searchParams.set("level", filters.level);
+  if (filters.endpoint && filters.endpoint !== "all") url.searchParams.set("endpoint", filters.endpoint);
+  if (filters.range)   url.searchParams.set("range", filters.range);
+  if (filters.search)  url.searchParams.set("search", filters.search);
+  if (filters.limit)   url.searchParams.set("limit", String(filters.limit));
+  return url.toString();
 }
 
 /**
@@ -110,18 +197,7 @@ export async function fetchMetrics(range: TimeRange = "1h"): Promise<{
   metrics:   Metrics;
   fetchedAt: string;
 }> {
-  return apiFetch("/logs/metrics", { range });
-}
-
-/**
- * Fetch active alerts computed from recent logs.
- */
-export async function fetchAlerts(range: TimeRange = "1h"): Promise<{
-  alerts:    Alert[];
-  count:     number;
-  fetchedAt: string;
-}> {
-  return apiFetch("/alerts", { range });
+  return apiFetchWithRetry(`/logs/metrics?range=${range}`);
 }
 
 /**
@@ -139,5 +215,107 @@ export async function fetchHealth(): Promise<{
     error:     string | null;
   };
 }> {
-  return apiFetch("/health");
+  return apiFetchWithRetry("/health");
 }
+
+// ── Alerts (Phase 6) ───────────────────────────────────────────
+
+/**
+ * Fetch active alerts computed / synced with DynamoDB
+ */
+export async function fetchAlerts(params: { severity?: string; range?: string; limit?: number } = {}): Promise<{
+  alerts:    Alert[];
+  count:     number;
+  fetchedAt: string;
+}> {
+  const search = new URLSearchParams(params as Record<string, string>).toString();
+  return apiFetchWithRetry(`/alerts?${search}`);
+}
+
+/**
+ * Fetch summary statistics for the dashboard
+ */
+export async function fetchAlertStats(): Promise<{
+  total:      number;
+  critical:   number;
+  warning:    number;
+  info:       number;
+  byType: {
+    ERROR_SPIKE: number;
+    HIGH_LATENCY: number;
+  };
+  byEndpoint: Record<string, number>;
+  fetchedAt:  string;
+}> {
+  return apiFetchWithRetry("/alerts/stats");
+}
+
+/**
+ * Hard delete / dismiss a single alert from the database
+ */
+export async function dismissAlert(id: string, timestamp: number): Promise<{
+  success: boolean;
+  id:      string;
+}> {
+  return apiFetchWithRetry(`/alerts/${id}?timestamp=${timestamp}`, {
+    method: "DELETE"
+  });
+}
+
+/**
+ * Clear all alerts entirely from the table
+ */
+export async function clearAlerts(): Promise<{
+  success: boolean;
+  cleared: number;
+}> {
+  return apiFetchWithRetry(`/alerts`, {
+    method: "DELETE"
+  });
+}
+
+// ── Storage (Phase 8) ──────────────────────────────────────────
+
+export async function fetchLogFiles(params: { endpoint?: string; date?: string } = {}): Promise<{
+  files: LogFile[];
+  count: number;
+  fetchedAt: string;
+}> {
+  const search = new URLSearchParams(params as Record<string, string>).toString();
+  return apiFetchWithRetry(`/storage/files?${search}`);
+}
+
+export async function getDownloadUrl(key: string): Promise<{
+  url: string;
+  expiresAt: string;
+  key: string;
+}> {
+  return apiFetchWithRetry(`/storage/files/download?key=${encodeURIComponent(key)}`);
+}
+
+export async function fetchFileContent(key: string): Promise<StorageFile> {
+  return apiFetchWithRetry(`/storage/files/content?key=${encodeURIComponent(key)}`);
+}
+
+export async function deleteLogFile(key: string): Promise<{
+  deleted: boolean;
+  key: string;
+}> {
+  return apiFetchWithRetry(`/storage/files?key=${encodeURIComponent(key)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchArchiverStatus(): Promise<ArchiverStatus> {
+  return apiFetchWithRetry("/storage/status");
+}
+
+export async function triggerArchiveNow(): Promise<{
+  triggered: boolean;
+  result: Record<string, unknown>;
+}> {
+  return apiFetchWithRetry("/storage/archive-now", {
+    method: "POST"
+  });
+}
+

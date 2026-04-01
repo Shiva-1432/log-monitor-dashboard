@@ -1,17 +1,11 @@
-/**
- * alerts.js
- * Analyses a batch of logs and returns triggered alerts.
- * In Phase 6 these will be persisted to DynamoDB.
- * For now they're computed on-the-fly from the log window.
- */
+import crypto from "crypto";
+import { saveAlert } from "./dynamodb.js";
 
-// ── Thresholds (will move to Settings in Phase 6) ─────────────
-const THRESHOLDS = {
-  errorRate:       30,   // % — fire CRITICAL if error rate exceeds this
-  warnErrorRate:   10,   // % — fire WARNING if error rate exceeds this
-  latencyP95:      800,  // ms — fire WARNING if P95 latency exceeds this
-  minSampleSize:   10,   // minimum log count before alert fires
-};
+// ── Thresholds ─────────────────────────────────────────────────────────────
+const ERROR_SPIKE_CRITICAL = 30;
+const ERROR_SPIKE_WARNING  = 10;
+const HIGH_LATENCY_MS      = 800;
+const MIN_SAMPLE_SIZE      = 10;
 
 /**
  * Compute the P95 latency from an array of latency values.
@@ -25,7 +19,7 @@ function p95(values) {
 
 /**
  * Analyse logs and return an array of alert objects.
- * @param {Array}  logs - from fetchAllLogs()
+ * @param {Array} logs - from fetchAllLogs()
  * @returns {Array} alerts
  */
 export function detectAlerts(logs) {
@@ -40,67 +34,109 @@ export function detectAlerts(logs) {
   }
 
   for (const [endpoint, epLogs] of Object.entries(byEndpoint)) {
-    if (epLogs.length < THRESHOLDS.minSampleSize) continue;
+    const sampleSize = epLogs.length;
+    if (sampleSize < MIN_SAMPLE_SIZE) continue;
 
-    const total     = epLogs.length;
-    const errors    = epLogs.filter((l) => l.level === "ERROR").length;
-    const errorRate = +((errors / total) * 100).toFixed(1);
-    const latencies = epLogs.map((l) => l.latencyMs).filter(Boolean);
-    const latencyP95Val = p95(latencies);
+    const errors     = epLogs.filter((l) => l.level === "ERROR").length;
+    const errorRate  = +((errors / sampleSize) * 100).toFixed(1);
+    const latencies  = epLogs.map((l) => l.latencyMs).filter(Boolean);
+    const latencyP95 = p95(latencies);
+    const timestamp  = Date.now();
 
-    // ── Critical: error rate > 30% ───────────────────────────
-    if (errorRate > THRESHOLDS.errorRate) {
+    // ── ERROR_SPIKE ─────────────────────────────────────────────────────────
+    if (errorRate > ERROR_SPIKE_CRITICAL) {
       alerts.push({
-        id:          `alert-err-${endpoint}-${Date.now()}`,
+        type:        "ERROR_SPIKE",
         severity:    "critical",
         title:       `High Error Rate — ${endpoint}`,
-        description: `Error rate is ${errorRate}% on ${endpoint} (threshold: ${THRESHOLDS.errorRate}%). ${errors} failures in the last window.`,
-        time:        new Date().toISOString(),
+        description: `Error rate is ${errorRate}% on ${endpoint} (threshold: ${ERROR_SPIKE_CRITICAL}%). ${errors} failures in the last window.`,
+        endpoint,
+        timestamp,
+        errorRate,
+        latencyP95,
+        threshold:   ERROR_SPIKE_CRITICAL,
+        sampleSize,
         meta: {
           endpoint,
           "error rate":  `${errorRate}%`,
-          threshold:     `${THRESHOLDS.errorRate}%`,
-          "sample size": `${total} requests`,
-        },
+          threshold:     `${ERROR_SPIKE_CRITICAL}%`,
+          "sample size": `${sampleSize} requests`
+        }
       });
-    }
-
-    // ── Warning: error rate > 10% ─────────────────────────────
-    else if (errorRate > THRESHOLDS.warnErrorRate) {
+    } else if (errorRate > ERROR_SPIKE_WARNING) {
       alerts.push({
-        id:          `alert-warn-${endpoint}-${Date.now()}`,
+        type:        "ERROR_SPIKE",
         severity:    "warning",
         title:       `Elevated Error Rate — ${endpoint}`,
-        description: `Error rate is ${errorRate}% on ${endpoint} — above warning threshold of ${THRESHOLDS.warnErrorRate}%.`,
-        time:        new Date().toISOString(),
+        description: `Error rate is ${errorRate}% on ${endpoint} — above warning threshold of ${ERROR_SPIKE_WARNING}%.`,
+        endpoint,
+        timestamp,
+        errorRate,
+        latencyP95,
+        threshold:   ERROR_SPIKE_WARNING,
+        sampleSize,
         meta: {
           endpoint,
           "error rate":  `${errorRate}%`,
-          threshold:     `${THRESHOLDS.warnErrorRate}%`,
-        },
+          threshold:     `${ERROR_SPIKE_WARNING}%`,
+          "sample size": `${sampleSize} requests`
+        }
       });
     }
 
-    // ── Warning: P95 latency > 800ms ──────────────────────────
-    if (latencyP95Val > THRESHOLDS.latencyP95) {
+    // ── HIGH_LATENCY ────────────────────────────────────────────────────────
+    if (latencyP95 > HIGH_LATENCY_MS) {
       alerts.push({
-        id:          `alert-lat-${endpoint}-${Date.now()}`,
+        type:        "HIGH_LATENCY",
         severity:    "warning",
         title:       `Elevated Latency — ${endpoint}`,
-        description: `P95 latency on ${endpoint} is ${latencyP95Val}ms (threshold: ${THRESHOLDS.latencyP95}ms). Possible cold start or downstream bottleneck.`,
-        time:        new Date().toISOString(),
+        description: `P95 latency on ${endpoint} is ${latencyP95}ms (threshold: ${HIGH_LATENCY_MS}ms). Possible cold start or downstream bottleneck.`,
+        endpoint,
+        timestamp,
+        errorRate,
+        latencyP95,
+        threshold:   HIGH_LATENCY_MS,
+        sampleSize,
         meta: {
           endpoint,
-          "p95 latency": `${latencyP95Val}ms`,
-          threshold:     `${THRESHOLDS.latencyP95}ms`,
-        },
+          "p95 latency": `${latencyP95}ms`,
+          threshold:     `${HIGH_LATENCY_MS}ms`,
+          "sample size": `${sampleSize} requests`
+        }
       });
     }
   }
 
-  // Sort: critical first
+  // Sort: critical first, warning second
   const order = { critical: 0, warning: 1, info: 2 };
   alerts.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+
+  return alerts;
+}
+
+/**
+ * Evaluate active logs, generate deterministic deduplication IDs, 
+ * and persist triggered alerts via DynamoDB.
+ * @param {Array} logs - from fetchAllLogs()
+ * @returns {Array} List of processed alerts with their IDs
+ */
+export async function runAlertCheck(logs) {
+  const alerts = detectAlerts(logs);
+
+  for (const alert of alerts) {
+    // This hash prevents alert spam. 
+    // If an alert for the same type+endpoint already exists within DynamoDB 
+    // it will be rejected due to our attribute_not_exists check in saveAlert().
+    const hashId = crypto
+      .createHash("md5")
+      .update(alert.type + alert.endpoint)
+      .digest("hex")
+      .slice(0, 12);
+      
+    alert.id = hashId;
+
+    await saveAlert(alert);
+  }
 
   return alerts;
 }

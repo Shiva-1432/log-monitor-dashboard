@@ -3,15 +3,12 @@ import {
   DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import cwClient from "../lib/aws.js";
+import config   from "../config.js";
 
-// ── Log group names from .env ──────────────────────────────────
-const LOG_GROUPS = {
-  login:   process.env.CW_LOG_GROUP_LOGIN   ?? "/aws/lambda/logwatch-login",
-  upload:  process.env.CW_LOG_GROUP_UPLOAD  ?? "/aws/lambda/logwatch-upload",
-  payment: process.env.CW_LOG_GROUP_PAYMENT ?? "/aws/lambda/logwatch-payment",
-};
+// ── Log group names from config ────────────────────────────────
+const LOG_GROUPS = config.cloudwatch.groups;
+const FETCH_LIMIT = config.cloudwatch.limit;
 
-const FETCH_LIMIT = parseInt(process.env.LOG_FETCH_LIMIT ?? "100", 10);
 
 /**
  * Parse a raw CloudWatch log event message into a structured object.
@@ -43,7 +40,7 @@ function parseLogEvent(event, endpoint) {
     latencyMs:  parsed.durationMs ?? parsed.latencyMs ?? 0,
     statusCode: parsed.statusCode ?? 200,
     requestId:  parsed.requestId  ?? event.eventId,
-    region:     process.env.AWS_REGION ?? "us-east-1",
+    region:     config.aws.region,
     raw,
   };
 }
@@ -170,3 +167,52 @@ export async function checkLogGroupsExist() {
   const res = await cwClient.send(cmd);
   return (res.logGroups ?? []).map((g) => g.logGroupName);
 }
+
+// ── In-Memory Store for Real-Time Polling ──────────────────────
+export let lastFetchedTimestamp = Date.now() - 60000;
+
+/**
+ * Fetch logs from all groups since the given timestamp.
+ * Used for incremental updates before WebSocket is fully active.
+ * 
+ * @param {number} lastTimestamp
+ * @returns {Promise<Array>} merged array sorted by timestamp asc
+ */
+export async function fetchLogsSince(lastTimestamp) {
+  const startTime = lastTimestamp + 1;
+  const endTime = Date.now();
+  const limit = 50;
+
+  const promises = Object.entries(LOG_GROUPS).map(([key, groupName]) =>
+    fetchGroupLogs(groupName, key, { startTime, endTime, limit })
+      .catch((err) => {
+        console.warn(`[CloudWatch] Could not fetch ${groupName} since ${startTime}:`, err.message);
+        return [];
+      })
+  );
+
+  const results = await Promise.all(promises);
+  const merged = results.flat();
+
+  // Sort by timestamp ascending (oldest first)
+  merged.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Update the in-memory store
+  // We set it to Date.now() to ensure we advance the cursor even if no logs are found.
+  lastFetchedTimestamp = Date.now();
+
+  return merged;
+}
+
+/**
+ * Takes a logs array and returns the highest timestamp value.
+ * Return null if array is empty.
+ * 
+ * @param {Array} logs
+ * @returns {number|null}
+ */
+export function getLatestTimestamp(logs) {
+  if (!logs || logs.length === 0) return null;
+  return Math.max(...logs.map((l) => l.timestamp));
+}
+

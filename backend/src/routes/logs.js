@@ -7,13 +7,13 @@ const router = Router();
 function parseTimeRange(range) {
   const now = Date.now();
   const MAP = {
-    "1h":  60 * 60 * 1000,
-    "6h":  6  * 60 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "6h": 6 * 60 * 60 * 1000,
     "24h": 24 * 60 * 60 * 1000,
-    "7d":  7  * 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
   };
   return {
-    endTime:   now,
+    endTime: now,
     startTime: now - (MAP[range] ?? MAP["1h"]),
   };
 }
@@ -36,33 +36,33 @@ function parseTimeRange(range) {
 router.get("/", async (req, res) => {
   try {
     const {
-      level    = "all",
+      level = "all",
       endpoint = "all",
-      range    = "1h",
-      search   = "",
-      limit    = "100",
+      range = "1h",
+      search = "",
+      limit = "100",
       startTime,
       endTime,
     } = req.query;
 
     const parsedRange = parseTimeRange(range);
     const finalStartTime = startTime ? parseInt(startTime, 10) : parsedRange.startTime;
-    const finalEndTime   = endTime   ? parseInt(endTime, 10)   : parsedRange.endTime;
+    const finalEndTime = endTime ? parseInt(endTime, 10) : parsedRange.endTime;
 
     const logs = await fetchAllLogs({
-      level:    level    === "all" ? "all" : level.toUpperCase(),
+      level: level === "all" ? "all" : level.toUpperCase(),
       endpoint: endpoint === "all" ? "all" : endpoint,
       search,
       startTime: finalStartTime,
       endTime: finalEndTime,
-      limit:    parseInt(limit, 10),
+      limit: parseInt(limit, 10),
     });
 
     res.json({
       logs,
-      count:     logs.length,
+      count: logs.length,
       fetchedAt: new Date().toISOString(),
-      filters:   { level, endpoint, range, search, startTime: finalStartTime, endTime: finalEndTime },
+      filters: { level, endpoint, range, search, startTime: finalStartTime, endTime: finalEndTime },
     });
   } catch (err) {
     console.error("[GET /logs] Error:", err.message);
@@ -78,30 +78,30 @@ router.get("/", async (req, res) => {
 router.get("/export", async (req, res) => {
   try {
     const {
-      level    = "all",
+      level = "all",
       endpoint = "all",
-      range    = "1h",
-      search   = "",
-      limit    = "100",
+      range = "1h",
+      search = "",
+      limit = "100",
       startTime,
       endTime,
     } = req.query;
 
     const parsedRange = parseTimeRange(range);
     const finalStartTime = startTime ? parseInt(startTime, 10) : parsedRange.startTime;
-    const finalEndTime   = endTime   ? parseInt(endTime, 10)   : parsedRange.endTime;
+    const finalEndTime = endTime ? parseInt(endTime, 10) : parsedRange.endTime;
 
     const logs = await fetchAllLogs({
-      level:    level    === "all" ? "all" : level.toUpperCase(),
+      level: level === "all" ? "all" : level.toUpperCase(),
       endpoint: endpoint === "all" ? "all" : endpoint,
       search,
       startTime: finalStartTime,
       endTime: finalEndTime,
-      limit:    parseInt(limit, 10),
+      limit: parseInt(limit, 10),
     });
 
     const fields = [
-      "id", "timestamp", "isoTime", "time", "level", "endpoint", 
+      "id", "timestamp", "isoTime", "time", "level", "endpoint",
       "message", "latencyMs", "statusCode", "requestId", "region", "raw"
     ];
 
@@ -146,9 +146,9 @@ router.get("/metrics", async (req, res) => {
     const { range = "1h", startTime, endTime } = req.query;
     const parsedRange = parseTimeRange(range);
     const finalStartTime = startTime ? parseInt(startTime, 10) : parsedRange.startTime;
-    const finalEndTime   = endTime   ? parseInt(endTime, 10)   : parsedRange.endTime;
+    const finalEndTime = endTime ? parseInt(endTime, 10) : parsedRange.endTime;
 
-    const logs    = await fetchAllLogs({ startTime: finalStartTime, endTime: finalEndTime, limit: 500 });
+    const logs = await fetchAllLogs({ startTime: finalStartTime, endTime: finalEndTime, limit: 500 });
     const metrics = computeMetrics(logs);
 
     res.json({ metrics, fetchedAt: new Date().toISOString() });

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogWatch System Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --card-bg: #161a23;
+            --border: #222733;
+            --accent: #00e5a0;
+            --text: #8a9bb3;
+            --text-bright: #ffffff;
+            
+            /* Phase Colors */
+            --p1-2: #a855f7;
+            --p3: #f59e0b;
+            --p4: #3b82f6;
+            --p5-6: #ef4444;
+            --p7: #10b981;
+            --p8: #14b8a6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--text-bright);
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            border-bottom: 2px solid var(--accent);
+            display: inline-block;
+            padding-bottom: 0.5rem;
+        }
+
+        .diagram-container {
+            flex: 1;
+            position: relative;
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .layer {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .layer-label {
+            text-align: center;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 1rem;
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        .box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .box:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 229, 160, 0.1);
+        }
+
+        .box h3 {
+            font-size: 0.85rem;
+            color: var(--text-bright);
+            margin-bottom: 0.4rem;
+        }
+
+        .box .sub-items {
+            font-size: 0.65rem;
+            color: var(--text);
+            line-height: 1.4;
+        }
+
+        /* Connector SVG */
+        .connectors {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .connector {
+            stroke: var(--border);
+            stroke-width: 1.5;
+            fill: none;
+            stroke-dasharray: 5, 5;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+
+        .connector.active {
+            stroke: var(--accent);
+            stroke-width: 2;
+            animation: flow 1s linear infinite;
+        }
+
+        @keyframes flow {
+            from { stroke-dashoffset: 20; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: fixed;
+            background: #1e2430;
+            border: 1px solid var(--accent);
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 100;
+            width: 280px;
+            display: none;
+            pointer-events: none;
+        }
+
+        .tooltip h4 { color: var(--accent); font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .tooltip p { font-size: 0.75rem; color: var(--text-bright); margin-bottom: 0.8rem; line-height: 1.4; }
+        .tooltip .meta { font-size: 0.65rem; color: var(--text); display: flex; flex-direction: column; gap: 0.3rem; }
+        .tooltip .meta b { color: var(--accent); }
+
+        /* Legend */
+        .legend {
+            background: #12161f;
+            padding: 1rem;
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .dot { width: 10px; height: 10px; border-radius: 50%; }
+
+        /* Status Colors */
+        .p1-2 { border-left: 4px solid var(--p1-2) !important; }
+        .p3 { border-left: 4px solid var(--p3) !important; }
+        .p4 { border-left: 4px solid var(--p4) !important; }
+        .p5-6 { border-left: 4px solid var(--p5-6) !important; }
+        .p7 { border-left: 4px solid var(--p7) !important; }
+        .p8 { border-left: 4px solid var(--p8) !important; }
+
+        .highlight-accent { border-color: var(--accent) !important; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>LogWatch Architecture</h1>
+    </header>
+
+    <div class="diagram-container" id="container">
+        <svg class="connectors" id="svg-canvas"></svg>
+
+        <!-- Layer 1: Client -->
+        <div class="layer">
+            <div class="layer-label">Layer 1: Client</div>
+            <div class="box p1-2" id="box-browser" data-info="The portal for engineers to monitor logs and system health in real-time." data-phase="1-2" data-tech="Next.js 14, Tailwind, Lucide">
+                <h3>Browser (Next.js 14)</h3>
+                <div class="sub-items">Dashboard | Logs Explorer | Alerts | Storage | Live Stream</div>
+            </div>
+        </div>
+
+        <!-- Layer 2: Auth -->
+        <div class="layer" style="justify-content: center;">
+            <div class="layer-label">Layer 2: Auth</div>
+            <div class="box p5-6" id="box-clerk" data-info="Enterprise-grade identity management and secure session handling." data-phase="5-6" data-tech="Clerk SDK, JWT Authentication">
+                <h3>Clerk</h3>
+                <div class="sub-items">Sign In | Session | UserButton</div>
+            </div>
+        </div>
+
+        <!-- Layer 3: Backend -->
+        <div class="layer" style="justify-content: center;">
+            <div class="layer-label">Layer 3: Backend</div>
+            <div class="box p3" id="box-express" data-info="Central API server managing data paths, SSE streams, and S3 archival logic." data-phase="3" data-tech="Express, Node.js, SSE, WebSockets">
+                <h3>Express (Render)</h3>
+                <div class="sub-items">/logs | /alerts | /stream | /storage | /health</div>
+            </div>
+        </div>
+
+        <!-- Layer 4: AWS Services -->
+        <div class="layer">
+            <div class="layer-label">Layer 4: AWS Services</div>
+            <div class="box p1-2" id="box-apig" data-info="Front-door entry point for simulated user traffic into the system." data-phase="1-2" data-tech="AWS API Gateway (REST)">
+                <h3>API Gateway</h3>
+                <div class="sub-items">/login | /upload | /payment</div>
+            </div>
+            <div class="box p1-2" id="box-lambda" data-info="Serverless compute triggered by traffic to generate structured JSON logs." data-phase="1-2" data-tech="AWS Lambda (Node 20)">
+                <h3>Lambda Functions</h3>
+                <div class="sub-items">logwatch-login/upload/payment</div>
+            </div>
+            <div class="box p1-2" id="box-cw" data-info="Real-time log ingestion and aggregation service for all lambda output." data-phase="1-2" data-tech="AWS CloudWatch Logs">
+                <h3>CloudWatch Logs</h3>
+                <div class="sub-items">3 log groups (Login/Upload/Payment)</div>
+            </div>
+            <div class="box p4" id="box-ws" data-info="High-velocity data bridge for piping logs directly from AWS to the dashboard." data-phase="4" data-tech="AWS WebSocket API">
+                <h3>WebSocket API</h3>
+                <div class="sub-items">logwatch-websocket-api</div>
+            </div>
+        </div>
+
+        <!-- Layer 5: Storage -->
+        <div class="layer" style="justify-content: center;">
+            <div class="layer-label">Layer 5: Storage</div>
+            <div class="box p5-6" id="box-ddb" data-info="NoSQL database for high-availability alert persistence and connection tracking." data-phase="5-6" data-tech="AWS DynamoDB">
+                <h3>DynamoDB</h3>
+                <div class="sub-items">logwatch-alerts | connections</div>
+            </div>
+            <div class="box p8" id="box-s3" data-info="Durable object storage for long-term cold storage of archived log sets." data-phase="8" data-tech="AWS S3 (Standard/IA)">
+                <h3>Amazon S3</h3>
+                <div class="sub-items">logs/{year}/{month}/{day}/</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="dot" style="background: var(--p1-2);"></div>Phase 1-2</div>
+        <div class="legend-item"><div class="dot" style="background: var(--p3);"></div>Phase 3</div>
+        <div class="legend-item"><div class="dot" style="background: var(--p4);"></div>Phase 4</div>
+        <div class="legend-item"><div class="dot" style="background: var(--p5-6);"></div>Phase 5-6</div>
+        <div class="legend-item"><div class="dot" style="background: var(--p7);"></div>Phase 7</div>
+        <div class="legend-item"><div class="dot" style="background: var(--p8);"></div>Phase 8</div>
+    </div>
+
+    <div class="tooltip" id="tooltip">
+        <h4 id="tt-title">Box Name</h4>
+        <p id="tt-desc">Description goes here.</p>
+        <div class="meta">
+            <div><b>Phase:</b> <span id="tt-phase">1</span></div>
+            <div><b>Tech:</b> <span id="tt-tech">React</span></div>
+        </div>
+    </div>
+
+    <script>
+        const svg = document.getElementById('svg-canvas');
+        const tooltip = document.getElementById('tooltip');
+        const connections = [
+            { from: 'browser', to: 'clerk', label: 'auth' },
+            { from: 'browser', to: 'express', label: 'HTTP/SSE/WS' },
+            { from: 'express', to: 'cw', label: 'FilterLogEvents' },
+            { from: 'express', to: 'ddb', label: 'PutItem / Query' },
+            { from: 'express', to: 's3', label: 'PutObject / GetObject' },
+            { from: 'apig', to: 'lambda', label: 'invoke' },
+            { from: 'lambda', to: 'cw', label: 'console.log' },
+            { from: 'cw', to: 'lambda', label: 'subscription' }, // Mocking the forwarder
+            { from: 'lambda', to: 'ws', label: 'PostToConnection' },
+            { from: 'ws', to: 'browser', label: 'wss://' }
+        ];
+
+        function drawConnections() {
+            svg.innerHTML = '';
+            const containerRect = document.getElementById('container').getBoundingClientRect();
+
+            connections.forEach(conn => {
+                const startEl = document.getElementById('box-' + conn.from);
+                const endEl = document.getElementById('box-' + conn.to);
+                if (!startEl || !endEl) return;
+
+                const startRect = startEl.getBoundingClientRect();
+                const endRect = endEl.getBoundingClientRect();
+
+                const x1 = startRect.right - containerRect.left;
+                const y1 = startRect.top + startRect.height / 2 - containerRect.top;
+                const x2 = endRect.left - containerRect.left;
+                const y2 = endRect.top + endRect.height / 2 - containerRect.top;
+
+                // Handle back-flow or vertical flow (like CW to Lambda)
+                const isBackflow = x1 > x2;
+                
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const cp1x = x1 + (x2 - x1) / 2;
+                const cp2x = x1 + (x2 - x1) / 2;
+                
+                let d = `M ${x1} ${y1} C ${cp1x} ${y1}, ${cp2x} ${y2}, ${x2} ${y2}`;
+                
+                if (conn.from === 'cw' && conn.to === 'lambda') {
+                    // Custom curve for internal AWS loop
+                     d = `M ${startRect.left - containerRect.left} ${y1} C ${startRect.left - containerRect.left - 40} ${y1}, ${endRect.right - containerRect.left + 40} ${y2}, ${endRect.right - containerRect.left} ${y2}`;
+                }
+
+                path.setAttribute('d', d);
+                path.setAttribute('class', 'connector');
+                path.setAttribute('id', `conn-${conn.from}-${conn.to}`);
+                svg.appendChild(path);
+            });
+        }
+
+        // Interactivity
+        document.querySelectorAll('.box').forEach(box => {
+            box.addEventListener('mouseenter', (e) => {
+                const id = box.id.replace('box-', '');
+                highlightConnections(id, true);
+            });
+
+            box.addEventListener('mouseleave', () => {
+                highlightConnections(null, false);
+            });
+
+            box.addEventListener('click', (e) => {
+                const rect = box.getBoundingClientRect();
+                tooltip.style.left = (rect.left + rect.width / 2 - 140) + 'px';
+                tooltip.style.top = (rect.top - 160) + 'px';
+                tooltip.style.display = 'block';
+
+                document.getElementById('tt-title').innerText = box.querySelector('h3').innerText;
+                document.getElementById('tt-desc').innerText = box.dataset.info;
+                document.getElementById('tt-phase').innerText = box.dataset.phase;
+                document.getElementById('tt-tech').innerText = box.dataset.tech;
+
+                e.stopPropagation();
+            });
+        });
+
+        document.addEventListener('click', () => {
+            tooltip.style.display = 'none';
+        });
+
+        function highlightConnections(id, active) {
+            document.querySelectorAll('.connector').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.box').forEach(b => b.classList.remove('highlight-accent'));
+
+            if (!active) return;
+
+            connections.forEach(conn => {
+                if (conn.from === id || conn.to === id) {
+                    const line = document.getElementById(`conn-${conn.from}-${conn.to}`);
+                    if (line) line.classList.add('active');
+                    
+                    document.getElementById(`box-${conn.from}`).classList.add('highlight-accent');
+                    document.getElementById(`box-${conn.to}`).classList.add('highlight-accent');
+                }
+            });
+        }
+
+        window.addEventListener('resize', drawConnections);
+        setTimeout(drawConnections, 100);
+
+    </script>
+</body>
+</html>
